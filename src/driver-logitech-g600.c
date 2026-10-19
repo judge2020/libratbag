@@ -291,7 +291,13 @@ logitech_g600_read_button(struct ratbag_button *button)
 
 	pdata = &drv_data->profile_data[profile->index];
 	profile_report = &pdata->report;
-	button_report = &profile_report->buttons[button->index];
+	/* Keep historical G-shift indices: slot 20 contains the LED color. */
+	if (button->index == 20)
+		return;
+	if (button->index < 20)
+		button_report = &profile_report->buttons[button->index];
+	else
+		button_report = &profile_report->g_shift_buttons[button->index - 21];
 
 	ratbag_button_enable_action_type(button, RATBAG_BUTTON_ACTION_TYPE_NONE);
 	ratbag_button_enable_action_type(button, RATBAG_BUTTON_ACTION_TYPE_BUTTON);
@@ -507,7 +513,13 @@ logitech_g600_write_profile(struct ratbag_profile *profile)
 		struct ratbag_button_action *action = &button->action;
 		struct logitech_g600_button *raw_button;
 
-		raw_button = &report->buttons[button->index];
+		/* Preserve unmodified and unsupported hardware assignments. */
+		if (!button->dirty || button->index == 20)
+			continue;
+		if (button->index < 20)
+			raw_button = &report->buttons[button->index];
+		else
+			raw_button = &report->g_shift_buttons[button->index - 21];
 
 		raw_button->code = logitech_g600_button_action_to_raw(action);
 		raw_button->modifier = 0x00;
@@ -532,6 +544,8 @@ logitech_g600_write_profile(struct ratbag_profile *profile)
 	}
 
 	list_for_each(led, &profile->leds, link) {
+		if (!led->dirty)
+			continue;
 		report->led_red = led->color.red;
 		report->led_green = led->color.green;
 		report->led_blue = led->color.blue;
@@ -560,11 +574,7 @@ logitech_g600_write_profile(struct ratbag_profile *profile)
 			report->led_duration = 0x0f;
 	}
 
-	// For now the default will copy over the main color into the g-shift color
-	// future update may add support to set this via cli command
-	report->g_shift_color[0] = report->led_red;
-	report->g_shift_color[1] = report->led_green;
-	report->g_shift_color[2] = report->led_blue;
+	/* Preserve the independent G-shift color when saving other settings. */
 
 	buf = (uint8_t*)report;
 
